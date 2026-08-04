@@ -1,0 +1,194 @@
+name: Windows Electron Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    env:
+      NODE_ENV: development
+      NPM_CONFIG_PRODUCTION: "false"
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      ELECTRON_CACHE: ${{ github.workspace }}\.cache\electron
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}\.cache\electron-builder
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Locate and normalize project root
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if (Test-Path "package.json") {
+            Write-Host "package.json trouvé à la racine du dépôt."
+            exit 0
+          }
+
+          Write-Warning "package.json absent de la racine. Recherche d’un dossier de projet imbriqué..."
+          $candidates = @(Get-ChildItem -Path . -Filter package.json -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch "[\\/]node_modules[\\/]" })
+
+          if ($candidates.Count -eq 0) {
+            Write-Host "Contenu présent dans le dépôt :"
+            Get-ChildItem -Force -Recurse | Select-Object -First 200 FullName, Length
+            throw "Aucun package.json trouvé. Le dépôt ne contient pas le projet : décompressez le ZIP RC52 puis importez tous les fichiers et dossiers obtenus, notamment package.json, src, electron, public et .github."
+          }
+
+          if ($candidates.Count -gt 1) {
+            Write-Host "package.json détectés :"
+            $candidates | Select-Object FullName
+            throw "Plusieurs projets ont été détectés. Conservez un seul projet dans le dépôt."
+          }
+
+          $projectRoot = $candidates[0].Directory.FullName
+          Write-Host "Projet imbriqué détecté : $projectRoot"
+
+          $items = Get-ChildItem -LiteralPath $projectRoot -Force
+          foreach ($item in $items) {
+            $destination = Join-Path $env:GITHUB_WORKSPACE $item.Name
+            if (Test-Path -LiteralPath $destination) {
+              Remove-Item -LiteralPath $destination -Recurse -Force
+            }
+            Move-Item -LiteralPath $item.FullName -Destination $env:GITHUB_WORKSPACE -Force
+          }
+
+          if (-not (Test-Path "package.json")) {
+            throw "La normalisation du projet a échoué : package.json reste introuvable à la racine."
+          }
+          Write-Host "Projet replacé automatiquement à la racine du runner."
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+
+      - name: Validate and repair package.json
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+            Get-Content package.json -Raw | ConvertFrom-Json | Out-Null
+            Write-Host "package.json valide."
+          }
+          catch {
+            Write-Warning "package.json invalide : restauration depuis package.template.json."
+            if (-not (Test-Path "package.template.json")) {
+              throw "package.template.json absent : réparation impossible."
+            }
+            Copy-Item "package.template.json" "package.json" -Force
+            Get-Content package.json -Raw | ConvertFrom-Json | Out-Null
+            Write-Host "package.json restauré et valide."
+          }
+          Get-Content package.json -TotalCount 8
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ELECTRON_CACHE }}
+            ${{ env.ELECTRON_BUILDER_CACHE }}
+          key: ${{ runner.os }}-electron-v31.7.7-builder-v25.1.8-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-v31.7.7-builder-v25.1.8-
+            ${{ runner.os }}-electron-
+
+      - name: Configure npm network retries
+        shell: pwsh
+        run: |
+          npm config set registry https://registry.npmjs.org/ --location=user
+          npm config set fetch-retries 6 --location=user
+          npm config set fetch-retry-factor 2 --location=user
+          npm config set fetch-retry-mintimeout 20000 --location=user
+          npm config set fetch-retry-maxtimeout 180000 --location=user
+          npm config set fetch-timeout 600000 --location=user
+
+      - name: Install dependencies
+        shell: pwsh
+        run: npm install --include=dev --include=optional --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify toolchain
+        shell: pwsh
+        run: |
+          node --version
+          npm --version
+          node ./node_modules/vite/bin/vite.js --version
+          node ./node_modules/electron-builder/out/cli/cli.js --version
+          node -e "console.log('Electron:', require('electron/package.json').version)"
+          node -e "console.log('esbuild:', require('esbuild').version, process.platform, process.arch)"
+
+      - name: Run automated tests
+        shell: pwsh
+        run: npm run test:all
+
+      - name: Build web application
+        shell: pwsh
+        run: npm run build
+
+      - name: Build Windows Setup with retry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $maxAttempts = 4
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            Write-Host "Tentative Setup $attempt/$maxAttempts"
+            npm run dist:win:installer
+            if ($LASTEXITCODE -eq 0) { break }
+
+            if ($attempt -eq $maxAttempts) {
+              throw "Échec du Setup après $maxAttempts tentatives."
+            }
+
+            Write-Warning "Téléchargement ou packaging interrompu. Nouvelle tentative dans 20 secondes."
+            Get-ChildItem -Path $env:ELECTRON_CACHE -Filter "*.part" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 20
+          }
+
+      - name: Build Windows Portable with retry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            Write-Host "Tentative Portable $attempt/$maxAttempts"
+            npm run dist:win:portable
+            if ($LASTEXITCODE -eq 0) { break }
+
+            if ($attempt -eq $maxAttempts) {
+              throw "Échec de la version portable après $maxAttempts tentatives."
+            }
+
+            Write-Warning "Packaging interrompu. Nouvelle tentative dans 15 secondes."
+            Get-ChildItem -Path $env:ELECTRON_CACHE -Filter "*.part" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 15
+          }
+
+      - name: List generated files
+        shell: pwsh
+        run: Get-ChildItem release/windows -Recurse | Select-Object FullName, Length
+
+      - name: Upload Windows Setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mesure-Amelioration-Terres-Poste-Transformation-RC52-Windows-Setup
+          path: release/windows/*Setup*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Windows Portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mesure-Amelioration-Terres-Poste-Transformation-RC52-Windows-Portable
+          path: release/windows/*Portable*.exe
+          if-no-files-found: error
+          retention-days: 14
