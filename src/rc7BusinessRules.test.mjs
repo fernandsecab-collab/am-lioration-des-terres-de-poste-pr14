@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const source=fs.readFileSync(new URL('./main.jsx',import.meta.url),'utf8');
+assert.match(source,/const COPPER_PER_TRENCH_M=3/);
+assert.match(source,/function copperFromTrench\(trenchLength\)/);
+assert.match(source,/1 m de tranchée = 3 m de cuivre/);
+assert.match(source,/INTERNE SECAB — NON INTÉGRÉ AU RAPPORT CLIENT/);
+assert.doesNotMatch(source,/PDF avec prix/);
+assert.doesNotMatch(source,/Portfolio avec prix/);
+assert.doesNotMatch(source,/Word avec prix/);
+assert.doesNotMatch(source,/ESTIMATION FINANCIERE DES TRAVAUX/);
+assert.doesNotMatch(source,/Quantitatif et organisation prévisionnelle/);
+assert.match(source,/metadata:\{reportType:'client',withCosts:false/);
+assert.doesNotMatch(source,/Générateur automatique de mémoire technique/i);
+console.log('RC7 business rules: OK');

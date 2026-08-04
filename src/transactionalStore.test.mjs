@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import {stableJson,nextRevision,dedupeByUuid,verifyAuditChain} from './transactionalStore.js';
+const hash=v=>crypto.createHash('sha256').update(stableJson(v)).digest('hex');
+assert.equal(stableJson({b:2,a:1}),'{"a":1,"b":2}');
+assert.equal(nextRevision([], {uuid:'A'}).number,1);
+assert.equal(dedupeByUuid([{uuid:'A',updatedAt:'1'},{uuid:'A',updatedAt:'2'}])[0].updatedAt,'2');
+const a1={at:'1',previousHash:'GENESIS',action:'CREATE'};a1.hash=hash(a1);
+const a2={at:'2',previousHash:a1.hash,action:'UPDATE'};a2.hash=hash(a2);
+assert.equal(verifyAuditChain([a1,a2],hash),true);
+assert.equal(verifyAuditChain([a1,{...a2,action:'DELETE'}],hash),false);
+console.log('transactionalStore: OK');

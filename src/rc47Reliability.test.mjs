@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {computeElectricalCase} from './domain/electricalEngine.js';
+import {repeatabilityAssessment,validateMeasurementProtocol} from './domain/measurementProtocol.js';
+import {validateReferenceRecord} from './domain/referenceRegistry.js';
+const main=fs.readFileSync(new URL('./main.jsx',import.meta.url),'utf8');
+assert.equal(main.includes('Solutions validées par la simulation'),false);
+assert.equal(main.includes('Résistance théorique de l’électrode ajoutée'),false);
+assert.equal(main.includes('Coefficient estimé après travaux'),false);
+assert.equal(main.includes('Extrait exact, non redessiné, du mémento EDF B13-23'),false);
+assert.match(main,/Travaux estimés pour atteindre le coefficient cible/);
+assert.equal(repeatabilityAssessment([10,10.2,9.9],5).valid,true);
+assert.equal(repeatabilityAssessment([10,12,9],5).valid,false);
+const direct={terreConfig:'separee',mode:'direct',rm:10,rcDirect:1,protocol:{earthIsolated:true,noParasiticBond:true,auxiliariesPositioned:true,interferenceChecked:true,connectionsPhotographed:true,method:'méthode terrain',directRcAuthorised:true,directRcMethod:'procédure interne',directRcReference:'REF-001'}};
+assert.equal(computeElectricalCase(direct).valid,true);
+assert.equal(computeElectricalCase({...direct,protocol:{}}).valid,false);
+assert.equal(validateReferenceRecord({id:'R1',title:'Guide',issuer:'EDF',index:'A',effectiveDate:'2026-01-01',territory:'Réunion',scope:'HTA/BT',location:'§4',validatedBy:'Responsable',validatedAt:'2026-07-31',status:'VALIDE'}).valid,true);
+console.log('RC47 reliability: OK');

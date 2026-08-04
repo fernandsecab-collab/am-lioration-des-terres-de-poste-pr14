@@ -1,0 +1,90 @@
+{
+  "name": "mesure-amelioration-terres-poste-transformation",
+  "version": "2.0.0-rc52",
+  "private": true,
+  "description": "RC52 : performances, estimation des travaux et schémas de rapport corrigés.",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "node ./node_modules/vite/bin/vite.js --host 0.0.0.0",
+    "build": "node ./node_modules/vite/bin/vite.js build",
+    "preview": "node ./node_modules/vite/bin/vite.js preview",
+    "start": "electron .",
+    "dist:win": "npm run build && npm run dist:win:installer && npm run dist:win:portable",
+    "android:sync": "npm run build && cap sync android",
+    "android:debug": "npm run android:sync && cd android && gradlew.bat assembleDebug",
+    "dist:win:installer": "node ./node_modules/electron-builder/out/cli/cli.js --win nsis --publish never --config.win.artifactName=Mesure-Amelioration-Terres-Poste-Transformation-Setup-${version}-${arch}.${ext}",
+    "dist:win:portable": "node ./node_modules/electron-builder/out/cli/cli.js --win portable --publish never --config.win.artifactName=Mesure-Amelioration-Terres-Poste-Transformation-Portable-${version}-${arch}.${ext}",
+    "lint": "eslint src/main.jsx src/utils/geo.js",
+    "verify": "npm run test:all && npm run lint && npm run build",
+    "test:rc": "node src/rcGovernance.test.mjs",
+    "verify:rc": "npm run test:rc && npm run lint && npm run build",
+    "test:production": "node src/productionCore.test.mjs",
+    "test:all": "npm run test:rc && node src/nationalReference.test.mjs && npm run test:production && npm run test:storage && npm run test:sqlite && npm run test:integration && npm run test:business && npm run test:ui",
+    "test:storage": "node src/transactionalStore.test.mjs",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild:native": "electron-builder install-app-deps",
+    "test:sqlite": "node electron/sqlite-store.test.cjs",
+    "test:integration": "node src/rc6Integration.test.mjs",
+    "test:business": "node src/rc7BusinessRules.test.mjs && node src/rc10RuntimeRegression.test.mjs",
+    "test:ui": "node src/rc21Safety.test.mjs && node src/rc47Reliability.test.mjs",
+    "test:rc49": "node src/rc47Reliability.test.mjs && node src/rc47Journey.test.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "6.2.0",
+    "@capacitor/core": "6.2.0",
+    "@capacitor/filesystem": "6.0.1",
+    "@capacitor/geolocation": "6.1.0",
+    "docx": "9.5.1",
+    "jszip": "3.10.1",
+    "leaflet": "^1.9.4",
+    "pdf-lib": "1.17.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "xlsx": "0.18.5",
+    "better-sqlite3": "11.8.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "6.2.0",
+    "@vitejs/plugin-react": "4.3.1",
+    "electron": "31.7.7",
+    "electron-builder": "25.1.8",
+    "eslint": "^8.57.1",
+    "eslint-plugin-react": "^7.37.5",
+    "vite": "5.4.11"
+  },
+  "build": {
+    "appId": "re.secab.couplage.expert",
+    "productName": "Mesure & amélioration des terres de poste de transformation",
+    "directories": {
+      "output": "release/windows"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
+    ],
+    "npmRebuild": true
+  },
+  "optionalDependencies": {
+    "@esbuild/win32-x64": "0.21.5",
+    "@rollup/rollup-win32-x64-msvc": "4.62.2"
+  },
+  "type": "module"
+}
